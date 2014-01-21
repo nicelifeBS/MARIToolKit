@@ -349,15 +349,22 @@ elif args == "createPolySets":
     if vmap_selected(vmap_num, layer_index) == False or not vmap_selected(vmap_num, layer_index):
         warning_msg("Please select a UV map.")
     
-    # Proceed with MARI_Tools_createPolySets.py script
+    # Proceed with UV_tools.py script
     elif dialog_brake() == True:
-        lx.eval("@MARI_Tools_createPolySets.py")
-
+        lx.eval("@UV_tools.py create_selSets")
+        
+elif args == "fixUVs":
+    
+    # Check if a UV map is selected
+    if vmap_selected(vmap_num, layer_index) == False or not vmap_selected(vmap_num, layer_index):
+        warning_msg("Please select a UV map.")
+    
+    # Proceed with UV_tools.py script
+    elif dialog_brake() == True:
+        lx.eval("@UV_tools.py fix_uvs")
 
 elif args == "test":
     lx.out("TESTING")
     
 else:
-    lx.out("Please choose one argument: loadFiles, gammaCorrect, setUVoffset, sortSelection, createPolySets")
-
-    
+    lx.out("Please choose one argument: loadFiles, gammaCorrect, setUVoffset, sortSelection, createPolySets, fixUVs")    
