@@ -10,8 +10,8 @@ UV_tools.py createselSets|fix_uvs
 
 create_selSets
 Creates poly selection sets based on the UV offset values. Each sector containing polys will get a selection set.
-The name follows the UDIM scheme of MARI. E.g.: If u and v are between 0-1 the space 0-1 gets a selection set with the name UDIM_1001,
-1-2: UDIM_1002. If v = 1-2 -> UDIM_1011, UDIM_1012,...
+The name follows the UDIM scheme of MARI. E.g.: If u and v are between 0-1 the space 0-1 gets a selection set with the name $UDIM:1001,
+1-2: $UDIM:1002. If v = 1-2 -> $UDIM:1011, $UDIM:1012,...
 
 fix_uvs
 -Moves uv points slightly which lie directly on a U or V border (e.g. 0 or 1) so they fit in one UDIM.
@@ -72,18 +72,16 @@ def check_selSets():
             poly_set_name = layer.query("polset.name")
             
             # Find a UDIM selection set and delete it
-            if "UDIM_" in poly_set_name:
+            if "$UDIM:" in poly_set_name:
                 delete_sets.append(poly_set_name)
                 
             else:
                 pass
-            
-        lx.out("Delete Sets: ", delete_sets)
         
         # Delete Sets
         layer.select("layer.index", str(layer_index))
         for sets in delete_sets:
-            lx.eval("select.deleteSet %s" %sets)
+            lx.eval("select.deleteSet {%s}" %sets)
             lx.out("Deleted Selection Set: ", sets)
 
 
@@ -212,11 +210,11 @@ if args == "create_selSets":
         for poly_index in value:
             lx.eval("select.element %s polygon add %s" %(layer_index, poly_index))
             
-        # Create a new selection set with the UDIM as name: UDIM_1011
-        lx.eval("select.editSet UDIM_%s add" %UDIM)
+        # Create a new selection set with the UDIM as name: $UDIM:1011
+        lx.eval("select.editSet {$UDIM:%s} add" %UDIM)
         
         # Logging
-        lx.out("New selection set created: UDIM_", UDIM)
+        lx.out("New selection set created: $UDIM:",UDIM)
         
         # Clear selection
         lx.eval("select.drop polygon")
