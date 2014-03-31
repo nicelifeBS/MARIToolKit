@@ -29,6 +29,13 @@ If filename contains MARI filname variables ($ENTITY, $CHANNEL, $UDIM, $LAYER, $
 as a comment tag of the texture. E.g.:
 $UDIM:1001;$CHANNEL:diffuse
 
+$CHANNEL options:
+User can set values for diffuse color, specular amount, reflection amount, bump, normal and displacement
+
+Filename template is now used to extract all the MARI filename variables and follows its same values
+
+Imported textures can now be sorted into group masks in the shader tree and if $CHANNEL is set the shader effect is set as well
+Grouping and shader effect are also tools.
 
 
 v1.2
@@ -93,6 +100,7 @@ def load_files():
     except RuntimeError:
         return False
 
+
 def get_file_extension(filename):
     """returns the file extension, e.g. ".tif". Searches from end until it finds "." """
     file_extension = ""
@@ -105,13 +113,17 @@ def get_file_extension(filename):
         
     return "." + file_extension[::-1] # return the saved extension by reversing it back and adding the period
 
+
 def get_filename(filePath):
     """returns the file name without the extension -> clip name"""
     filename = filePath.split("/")[-1]
     return filename.replace(get_file_extension(filename), "")
 
+
 def parseFileName(fileNameUser, fileName):    
-    """Extract MARI variables from filename (without extension). Returns a dictionary with all found variables and their values"""
+    """Extract MARI variables from filename (without extension).
+    Returns a dictionary with all found variables and their values:
+    {'$CHANNEL':'diffuse','$UDIM':'1002'}"""
     
     # MARI filename variables
     MARI_vars = ["$ENTITY", "$CHANNEL", "$UDIM", "$LAYER", "$FRAME", "$NUMBER", "$COUNT", "$[METADATA VALUE]"]
@@ -119,31 +131,32 @@ def parseFileName(fileNameUser, fileName):
     foundMARI_vars = []
     for i in MARI_vars:
         if i in fileNameUser:
-            foundMARI_vars.insert(fileNameUser.index(i),i)
+            foundMARI_vars.insert(fileNameUser.index(i),i) # index is used to maintain the correct order from fileNameUser
+    #lx.out('vars in filename:', foundMARI_vars)
     
-    # Search for delimiter in filename
+    ## Extract delimiter from the filename ##
     # All chars which are not within the MARI_vars are seen as delimiter
     # Returns a list of delimiters
     d = fileNameUser # %ENTITY-%CHANNEL.$UDIM
-    d = re.split("\\" + "|\\".join(MARI_vars), d) # join -> "\$ENTITY|\$CHANNEL|\$UDIM" split -> ['','-','.','']
+    d = re.split("\\" + "|\\".join(MARI_vars), d) # re.split uses regular expressions "\\" is used as escape character for "$": join -> "\$ENTITY|\$CHANNEL|\$UDIM" split -> ['','-','.','']
     d = filter(None, d) # Clean up list -> remove items which are empty e.g.: ''
-
-    # Extract MARI variables from filename
-    fileName = re.split("|\\".join(d), fileName)
-    fileName = filter(None, fileName)
     
+    # Convert delimiter to regular expressions
+    # re.escape: escapes all special character in string
+    d = re.escape("|".join(d)).replace('\\|', '|') # convert '\|' -> '|' after re.escape
+    
+    # Extract the values of the foundMARI_vars from the actual filename
     fileVars = {}
+    fileName = re.split(d, fileName)
+    fileName = filter(None, fileName)
+
     for var in foundMARI_vars:
         fileVars[var] = fileName[foundMARI_vars.index(var)]
-    #lx.out("MARI variables in filename: ", fileVars)
-    
-    # DEBUG #
-    #lx.out("filename: ", fileName)
-    #lx.out("MARI vars: ", foundMARI_vars)
     
     return fileVars
     
-
+    
+    
 def get_clipPath(selection):
     """Returns a dictionary. The key is the actual file path of the image map. Per key the current
     position number and the texture ID are saved."""
@@ -154,21 +167,6 @@ def get_clipPath(selection):
                 list [lx.eval("query layerservice texture.clipFile ? %s" %number)] = [number,imap]
     return list
 
-
-##### DEPRICATED ##########
-def get_UDIM(file_name, delimiter):
-    """Extract the UDIM value from file name. A file name and a delimiter must be given. Returns False if it is not a MARI texture."""
-    for item in file_name.split(delimiter): # try if string is a number and if the length is 4 chars long it is identified as UDIM
-        try:
-            int(item)
-            if len(item) == 4:
-                U_offset = -(int(item[3]) - 1)
-                V_offset = -(int(item[1:3]))
-                return U_offset, V_offset
-            
-        except ValueError:
-            pass
-###########################
 
 def getUVoffSet(UDIM):
     """Converts UDIM to UVoff set values. A 4 digit number as UDIM must be given. e.g. 1012"""
@@ -199,6 +197,7 @@ def check_clip_size(clip_name):
                 lx.out("MARI ToolKit: %s correct size" %clip_name)
                 return False
 
+
 def set_gamma(value):
     """Set gamma with given value for selected images."""
     if not lx.eval("query sceneservice selection ? imageMap"):
@@ -206,9 +205,11 @@ def set_gamma(value):
     else:
         lx.eval("item.channel imageMap$gamma %s" %value)
 
+
 def get_texture_parent(item_ID):
     """Returns the parent of an image map"""
     return lx.eval("query sceneservice textureLayer.parent ? %s" %item_ID)
+
 
 def vmap_selected(vmap_num, layer_index):
     """See if a UV map of the current layer is selected and returns the name.
@@ -230,25 +231,34 @@ def vmap_selected(vmap_num, layer_index):
             else:
                 pass
 
+
 def createTextures(UVmap_name, fileList, gamma_correction, gamma_value):
     """Import and create the textures in the shader tree.
     All textures have their UDIM assigned as a tag.
-    Returns a list of imageIDs of all imported files."""
+    Returns a list of imageIDs of all imported files and an error list"""
     
+    lx.eval('select.drop item') # clear selection
     data = [] # store imported image maps
-    
     clipList = getImageMaps(scanClips())
+    error_list = [] # List of images with file name issues
     
     for filePath in fileList:
-        lx.eval("select.item %s set" %layer_id) # Select only the Mesh for a fresh start
         file_name = get_filename(filePath)
         
         if file_name not in clipList:
-            MARI_vars = parseFileName(fileNameUser, file_name) # extract the MARI filename templates and their values
+            try:
+                MARI_vars = parseFileName(fileNameUser, file_name) # extract the MARI filename templates and their values
+                if len(MARI_vars['$UDIM']) != 4:
+                    raise
+                
+            except:
+                error_list.append(file_name)
+                continue
+            
             tag = dict2str(MARI_vars) #string for tag entry
             UVoffSet = getUVoffSet(MARI_vars["$UDIM"]) # UVoff set from UDIM
             
-            if UVoffSet != False:
+            if UVoffSet != False and MARI_vars:
                 UVoffSet = getUVoffSet(MARI_vars["$UDIM"]) # UVoff set from UDIM
                 create_imageMap(filePath) # Create image maps in shadertree
                 
@@ -271,14 +281,17 @@ def createTextures(UVmap_name, fileList, gamma_correction, gamma_value):
                 # Set the UV offset values
                 imap_ID = lx.eval("query sceneservice selection ? imageMap")
                 data.append(imap_ID) # save image id to list
+                
                 lx.eval("select.subItem %s set txtrLocator" %locator_ID(imap_ID))
                 lx.eval("item.channel txtrLocator$m02 %s" %UVoffSet[0])
                 lx.eval("item.channel txtrLocator$m12 %s" %UVoffSet[1])
                 
                 # Set item tag
+                
                 lx.eval("item.tag string CMMT {%s}" %tag)
                 lx.eval("texture.parent Render 0")
                 sceneservice.select("selection", "imageMap")
+            
             else:
                 warning_msg("Please select file(s) with an UDIM or change filename template.")
                 return False
@@ -287,7 +300,7 @@ def createTextures(UVmap_name, fileList, gamma_correction, gamma_value):
         else:
             lx.out("MARI ToolKit: ", file_name, " clip already in scene.")
             
-    return data
+    return data, error_list
     
 def scanMatGroups():
     """Look for UDIM group masks in the shader tree. Returns a list of the ptag values of the group mask."""
@@ -316,24 +329,34 @@ def renderID():
         return sceneservice.query("item.id")
         break
 
-def UDIMSets():
-    # Get UDIM selection sets in scene
-    layerservice.select("layer", "main")
-    polysetNum = layerservice.query("polset.N")
+def UDIMSets(meshIDs):
+    """Return a list of UDIM selection sets. A list of meshIDs must be given"""
+    
+    lx.eval('select.drop item mesh') # Clear selection
+    
     data = []
+    
+    for mesh in meshIDs:
+        lx.eval('select.subItem %s add mesh' %mesh)
+    
+    # Compare name of polyset and store the UDIM sets in a list
+    polysetNum = layerservice.query("polset.N")
     for i in range(polysetNum):
         layerservice.select("polset.name", str(i))
         polySetName = layerservice.query("polset.name")
-        if "UDIM" in polySetName:
+        if "UDIM" in polySetName and polySetName not in data:
             data.append(polySetName)
+            
+    lx.eval('select.drop item mesh')
+    
     return data
 
-def createMaterial(maskColorTag):
+def createMaterial(maskColorTag, UDIMSet_list):
     """
     Create material groups for each UDIM. Each group contains a material.
     The group is assigned via the UDIM selection sets.
     """
-    for selSetName in UDIMSets():
+    for selSetName in UDIMSet_list:
         if selSetName not in scanMatGroups():
             # Create group mask with tags
             lx.eval("shader.create mask")
@@ -388,10 +411,12 @@ def sortIntoGroups():
                 lx.eval("texture.parent %s -1" %maskDict[key])
                 lx.out("MARI ToolKit: %s moved to %s"%(i, maskDict[key]))
 
-def checkSelSets():
+def checkSelSets(meshIDs):
     """Check if selection sets are already created for the selected mesh item."""
-    if not UDIMSets():
-        lx.eval("@UV_tools.py create_selSets")
+    if not UDIMSets(meshIDs):
+        for mesh in meshIDs:
+            lx.eval('select.subItem %s set mesh' %mesh)
+            lx.eval("@UV_tools.py create_selSets")
     else:
         lx.out("MARI ToolKit: UDIM selection sets existing.")
         pass
@@ -443,12 +468,14 @@ def setShaderEffect(imageItemList=None):
     
     if selection and imageItemList is None:
         itemList = selection
+        
     elif imageItemList is None and not selection:
         itemList = []
         sceneservice.select("imageMap.N", "all")
         for i in range(sceneservice.query("imageMap.N")):
             sceneservice.select("imageMap.id", str(i))
             itemList.append(sceneservice.query("item.id"))
+    
     elif imageItemList is not None:
         itemList = imageItemList
     
@@ -504,7 +531,43 @@ def getImageMaps(clip_list):
             
     return images
 
+
+def getMeshItems():
+    '''Return dict with mesh item names and IDs: Key: mesh.name, value: mesh.id
+    And mode= None, "all", "selection"
+    Example: ({'Mesh':'mesh023'},"all")'''
+    sceneservice.select('selection', 'mesh')
+    mesh_sel = sceneservice.queryN('selection')
+    mesh_dict = {}
+    mode = None
     
+    if mesh_sel:
+        mode = 'selection'
+        for mesh_id in mesh_sel:
+            sceneservice.select('mesh.id', str(mesh_id))
+            mesh_name = sceneservice.query('mesh.name')
+            mesh_dict[mesh_name] = mesh_id
+        
+        return mesh_dict, mode
+    
+    # If nothing is selected go through all mesh layer if user excepts
+    elif not mesh_sel and dialog_yesNo('No Mesh Selected', 'Should I go through all mesh layer which names match the texture name?'):
+        sceneservice.select('mesh.N', 'all')
+        mesh_num = sceneservice.query('mesh.N')
+        mode = 'all'
+        for num in range(mesh_num):
+            sceneservice.select('mesh.id', str(num))
+            mesh_id = sceneservice.query('mesh.id')
+            mesh_name = sceneservice.query('mesh.name')
+            mesh_dict[mesh_name] = mesh_id
+        
+        return mesh_dict, mode
+    
+    else:
+        return mode
+        lx.out('I did nothing.')
+
+
 ## string conversions ##
 def dict2str(dictionary):
     """Convert a dictionary to a string.
@@ -541,6 +604,33 @@ def warning_msg(name):
         
     except RuntimeError:
         pass
+
+def dialog_yesNo(header, text):
+    try:
+        lx.eval("dialog.setup yesNo")
+        lx.eval("dialog.title {%s}" %header)
+        lx.eval("dialog.msg {%s}" %text)
+        lx.eval("dialog.result ok")
+        lx.eval("dialog.open")
+        
+        lx.eval("dialog.result ?")
+        return True
+    
+    except RuntimeError:
+        return False
+
+def dialog_yesNoCancel(header, text):
+    try:
+        lx.eval("dialog.setup yesNoCancel")
+        lx.eval("dialog.title {%s}" %header)
+        lx.eval("dialog.msg {%s}" %text)
+        lx.eval("dialog.result ok")
+        lx.eval("dialog.open")
+        return lx.eval("dialog.result ?")
+    
+    except RuntimeError:
+        return lx.eval("dialog.result ?")
+
 
 def dialog_brake():
     try:
@@ -580,16 +670,9 @@ maskColorTag = "orange" # Color tag for UDIM mask groups
 #################################
 gamma_correction = lx.eval("user.value MARI_TOOLS_gamma ?") # Gamma correction on/off
 gamma_value = lx.eval("user.value MARI_TOOLS_gammavalue ?") # Gamma value from UI
-delimiter =  lx.eval("user.value MARI_TOOLS_delimiter ?") # Delimiter form UI
 fileNameUser =  lx.eval("user.value MARI_TOOLS_filename ?") # Filename structure
 filter_clips = lx.eval("user.value MARI_TOOLS_filter_clips ?") # Delete 8x8 clips on/off
 create_maskGroups = lx.eval("user.value MARI_TOOLS_create_maskGroups ?") # create missing UDIM mask groups on/off
-
-## Delimiter Interpreter ##
-if delimiter == "option1":
-    delimiter = "."
-elif delimiter == "option2":
-    delimiter = "_"
 
 
 ######################################
@@ -602,38 +685,75 @@ elif delimiter == "option2":
 
 # Import & organize textures into groups #
 if args == "organizeLoadFiles":
+    sceneservice.select('selection', 'mesh')
+    mesh_items = sceneservice.queryN('selection')
+    entity_status = '$ENTITY' in fileNameUser
     
+    # Check the selection if nothing is selected all mesh items are stored in a dict if $ENTITY is specified.
+    try:
+        mesh_items[0]
+        selection_status = True
+    except:
+        selection_status = False
+        mesh_items = {}
+        if entity_status == True:
+            sceneservice.select('mesh.N', 'all')
+            for i in range(sceneservice.query('mesh.N')):
+                sceneservice.select('mesh.id', str(i))
+                mesh_items[sceneservice.query('mesh.name')] = sceneservice.query('mesh.id')
+            
     if "$UDIM" not in fileNameUser:
         warning_msg("UDIM is missing in the filename template.")
     
     # Check if a UV set is selected
     elif vmap_selected(vmap_num, layer_index) == False or not vmap_selected(vmap_num, layer_index):
         warning_msg("Please select a UV map.")
+        
+    elif selection_status == False and entity_status == False:
+        warning_msg("Please Select an appropriate mesh layer.")
     
     else:
-        UVmap_name = vmap_selected(vmap_num, layer_index)
+        UVmap_name = vmap_selected(vmap_num, layer_index)        
         fileList = load_files() # Open dialog to load image files
         
-        if fileList:    
-            # Import images and get list of imported itemIDs
-            imageItemList = createTextures(UVmap_name, fileList, gamma_correction, gamma_value)
+        # Import images and get list of imported itemIDs
+        imageItemList = createTextures(UVmap_name, fileList, gamma_correction, gamma_value)
+        
+        if fileList and selection_status == True and imageItemList[0] != False:
+            checkSelSets(mesh_items) # Check if selection sets are excisting for all mesh items
+            createMaterial(maskColorTag, UDIMSets(mesh_items)) # create the material groups with color tag and comment tag
+            sortIntoGroups() 
             
-            if imageItemList != False:
-                checkSelSets() # Check if selection sets are created
-                createMaterial(maskColorTag) # create the material groups with color tag and comment tag
-                sortIntoGroups() 
-                
-                # Set the Shader effect of the imported textures
-                setShaderEffect(imageItemList)
-            else:
-                lx.out("MARI ToolKit: Import Error")
+            # Set the Shader effect of the imported textures
+            setShaderEffect(imageItemList[0])
+            
+            #Error logging
+            lx.out('MARIToolKit: FILENAME ERROR:\n %s' %('\n'.join(imageItemList[1])))
+            
+        elif fileList and selection_status == False and imageItemList != False:
+            meshes_found = []
+            for image in imageItemList[0]:
+                sceneservice.select('imageMap.tags', str(image))
+                try:
+                    meshes_found.append(mesh_items[tagStr2Dict(sceneservice.query('imageMap.tags'))['$ENTITY']])
+                except:
+                    pass
+            
+            checkSelSets(meshes_found)
+            createMaterial(maskColorTag, UDIMSets(meshes_found)) # create the material groups with color tag and comment tag
+            sortIntoGroups() 
+            setShaderEffect(imageItemList[0]) # Set the Shader effect of the imported textures
+            
+            #Error logging
+            lx.out('MARIToolKit: FILENAME ERROR:\n %s' %('\n'.join(imageItemList[1])))
             
         else:
-            lx.out("MARI ToolKit: Canceled by user.")
+            lx.out("MARI ToolKit: Import Error")
     
 # Import only textures strait into the shader tree root #
 elif args == "loadFiles":
-    
+    sceneservice.select('selection', 'mesh')
+
     if "$UDIM" not in fileNameUser:
         warning_msg("UDIM is missing in the filename template.")
     
@@ -646,7 +766,7 @@ elif args == "loadFiles":
         fileList = load_files() # Open dialog to load image files
         
         if fileList:
-            createTextures(UVmap_name, fileList, gamma_correction, gamma_value)
+            createTextures(UVmap_name, fileList, gamma_correction, gamma_value)[0]
         else:
             lx.out("MARI ToolKit: Canceld by user.")
 
@@ -657,8 +777,15 @@ elif args == "loadFiles":
 
 # Sort into material groups
 elif args == "sortToGroups":
-    if create_maskGroups == True:    
-        createMaterial(maskColorTag)
+    if create_maskGroups == True:
+        sceneservice.select('mesh.N','all')
+        
+        mesh_items = []
+        for i in range(sceneservice.query('mesh.N')):
+            sceneservice.select('mesh.id',str(i))
+            mesh_items.append(sceneservice.query('mesh.id'))
+            
+        createMaterial(maskColorTag, UDIMSets(mesh_items))
         sortIntoGroups()
     else:
         sortIntoGroups()
@@ -728,8 +855,7 @@ elif args == "setShaderEffect":
     setShaderEffect()
 
 elif args == "testing":
-    lx.out("TESTING")
-    lx.out(scanMatGroups())
+    lx.out("-----TESTING-----")
     
 else:
     lx.out("MARI ToolKit: ")
