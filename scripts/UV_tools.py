@@ -44,7 +44,6 @@ def selected_uvmap():
             if layer.query("vmap.name") == selected_uv_map:
                 vmap_index = vmap
                 return vmap_index
-                break
             
     else:
         lx.out("Hey mate, you didn't select a proper UV map. So all I did was printing this stupid message.")

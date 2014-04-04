@@ -59,22 +59,19 @@ def locator_ID(imageMap_ID):
     """
     Find ID of the texture locator of an image map. The ID of the image map in the shadertree is needed as argument.
     """
-    texture_num = lx.eval("query layerservice texture.N ? all")
+    layerservice.select('texture.N', 'all')
+    texture_num = layerservice.query('texture.N')
     # Parse through all textures until texture ID of layer matches the selected one.
-    for i in range(texture_num):
-        texture_ID = lx.eval("query layerservice texture.id ? %s" %i)
-        if texture_ID == imageMap_ID:
-            return lx.eval("query layerservice texture.locator ? %s" %i) #retruns the texture locator ID
-            break
-        else:
-            lx.out("MARI ToolKit: No texture locator found for ", imageMap_ID)
+    for i in xrange(texture_num):
+        layerservice.select('texture.id', str(i))
+        texture_ID = layerservice.query('texture.id')
+        if texture_ID == imageMap_ID:            
+            return layerservice.query('texture.locator') #retruns the texture locator ID
 
 def create_imageMap(clipPath):
     """
     Create material in shader tree. Change it to an image map and set up UV projection type and tiling
-    """
-    #lx.out("Create Image: texture.N ", lx.eval("query layerservice texture.N ?"))
-    
+    """    
     lx.eval("clip.addStill %s" %clipPath)
     lx.eval("shader.create constant")
     lx.eval("item.setType imageMap textureLayer")
@@ -83,7 +80,7 @@ def create_imageMap(clipPath):
     lx.eval("item.channel txtrLocator$projType uv")
     lx.eval("item.channel txtrLocator$tileU reset")
     lx.eval("item.channel txtrLocator$tileV reset")
-    #layer_index = lx.eval("query layerservice layer.index ? main")
+    
     
 def load_files():
     """
@@ -162,9 +159,11 @@ def get_clipPath(selection):
     position number and the texture ID are saved."""
     list = {}
     for imap in selection:
-        for number in range(lx.eval("query layerservice texture.N ?")):
-            if lx.eval("query layerservice texture.id ? %s" %number) == imap:
-                list [lx.eval("query layerservice texture.clipFile ? %s" %number)] = [number,imap]
+        layerservice.select('texture.N', 'all')
+        for number in range(layerservice.query('texture.N')):
+            layerservice.select('texture.id', str(number))
+            if layerservice.query('texture.id') == imap:
+                list [layerservice.query('texture.clipFile')] = [number,imap]
     return list
 
 
@@ -185,22 +184,23 @@ def check_clip_size(clip_name):
     """Checks the size of a clip and return True if it is 8x8 pixels"""
     
     clip_size = "w:8"
-    for i in range(lx.eval("query layerservice clip.N ?")):
-        if lx.eval("query layerservice clip.id ? %s" %i) == clip_name:
-            clip_info = lx.eval("query layerservice clip.info ? %s" %i)
-            clip_info = clip_info.split(" ")
+    layerservice.select('clip.N', 'all')
+    for i in xrange(layerservice.query('clip.N')):
+        layerservice.select('clip.id', str(i))
+        if layerservice.query('clip.id') == clip_name:
+            clip_info = layerservice.query('clip.info').split(' ')
             
             if clip_size in clip_info[1]: 
                 lx.out("MARI ToolKit: %s deleted" %clip_name)
                 return True
             else:
-                lx.out("MARI ToolKit: %s correct size" %clip_name)
                 return False
 
 
 def set_gamma(value):
     """Set gamma with given value for selected images."""
-    if not lx.eval("query sceneservice selection ? imageMap"):
+    sceneservice.select('selection', 'imageMap')
+    if not sceneservice.query('selection'):
         lx.out("MARI ToolKit: nothing selected")
     else:
         lx.eval("item.channel imageMap$gamma %s" %value)
@@ -208,39 +208,42 @@ def set_gamma(value):
 
 def get_texture_parent(item_ID):
     """Returns the parent of an image map"""
-    return lx.eval("query sceneservice textureLayer.parent ? %s" %item_ID)
+    sceneservice.select('textureLayer', str(item_ID))
+    return sceneservice.query('textureLayer.parent')
 
 
 def vmap_selected(vmap_num, layer_index):
     """See if a UV map of the current layer is selected and returns the name.
     Also returns false if no vmaps are in scene"""
-    
+
     if vmap_num == 0:
         return False
     
     else:
         for i in range(vmap_num):
-            vmap_layer = lx.eval("query layerservice vmap.layer ? %s" %i) + 1 # Layer index starts at 1 and not at 0 -> +1 to shift index
-            vmap_type = lx.eval("query layerservice vmap.type ? %s" %i) 
+            layerservice.select('vmap.layer', str(i))
+            layerservice.select('vmap.type', str(i))
+            vmap_layer = layerservice.query('vmap.layer') + 1 # Layer index starts at 1 and not at 0 -> +1 to shift index
+            vmap_type = layerservice.query('vmap.type')
     
-            if vmap_type == "texture" and vmap_layer == layer_index:         
-                if lx.eval("query layerservice vmap.selected ? %s" %i) == True:
-                    vmap_name = lx.eval("query layerservice vmap.name ? %s" %i)
+            if vmap_type == "texture" and vmap_layer == layer_index:
+                layerservice.select('vmap.selected', str(i))
+                if layerservice.query('vmap.selected') == True:
+                    vmap_name = layerservice.query('vmap.name')
                     return vmap_name
-            
-            else:
-                pass
 
 
 def createTextures(UVmap_name, fileList, gamma_correction, gamma_value):
-    """Import and create the textures in the shader tree.
-    All textures have their UDIM assigned as a tag.
-    Returns a list of imageIDs of all imported files and an error list"""
+    """Import and create textures in the shader tree.
+    MARI filename variables are saved as comment tag, e.g. $ENTITY:Mesh;$CHANNEL:diffuse;$UDIM:1001;
+    Returns list of imageIDs of all imported files, error list, """
     
     lx.eval('select.drop item') # clear selection
+    
     data = [] # store imported image maps
     clipList = getImageMaps(scanClips())
     error_list = [] # List of images with file name issues
+    tag_list = []
     
     for filePath in fileList:
         file_name = get_filename(filePath)
@@ -256,6 +259,7 @@ def createTextures(UVmap_name, fileList, gamma_correction, gamma_value):
                 continue
             
             tag = dict2str(MARI_vars) #string for tag entry
+            tag_list.append(tag) # save tags
             UVoffSet = getUVoffSet(MARI_vars["$UDIM"]) # UVoff set from UDIM
             
             if UVoffSet != False and MARI_vars:
@@ -263,7 +267,8 @@ def createTextures(UVmap_name, fileList, gamma_correction, gamma_value):
                 create_imageMap(filePath) # Create image maps in shadertree
                 
                 # Check the image size and ignore it if it's 8x8 pixels
-                clip_name = lx.eval("query sceneservice selection ? mediaClip")
+                sceneservice.select('selection', 'mediaClip')
+                clip_name = sceneservice.query('selection')
                 if check_clip_size(clip_name) == True and filter_clips == True:
                     lx.eval("clip.delete")
                     lx.eval("texture.delete")
@@ -279,15 +284,15 @@ def createTextures(UVmap_name, fileList, gamma_correction, gamma_value):
                 lx.eval("texture.setUV %s" %UVmap_name)
                 
                 # Set the UV offset values
-                imap_ID = lx.eval("query sceneservice selection ? imageMap")
+                sceneservice.select('selection', 'imageMap')
+                imap_ID = sceneservice.query('selection')
                 data.append(imap_ID) # save image id to list
                 
                 lx.eval("select.subItem %s set txtrLocator" %locator_ID(imap_ID))
                 lx.eval("item.channel txtrLocator$m02 %s" %UVoffSet[0])
                 lx.eval("item.channel txtrLocator$m12 %s" %UVoffSet[1])
                 
-                # Set item tag
-                
+                # Set item tag with all found MARI_vars
                 lx.eval("item.tag string CMMT {%s}" %tag)
                 lx.eval("texture.parent Render 0")
                 sceneservice.select("selection", "imageMap")
@@ -302,22 +307,36 @@ def createTextures(UVmap_name, fileList, gamma_correction, gamma_value):
             
     return data, error_list
     
-def scanMatGroups():
-    """Look for UDIM group masks in the shader tree. Returns a list of the ptag values of the group mask."""
+def scanMatGroups(mode):
+    """Look for UDIM group masks in the shader tree. Returns a list of the ptag values of the group mask.
+    mode:
+    '$ENTITY'
+    '$UDIM'"""
     sceneservice.select("mask.N", "all")
     itemNum = sceneservice.query("mask.N")
     data = []
-    for i in range(itemNum):
-        sceneservice.select("mask.id", str(i))
-        itemTag = sceneservice.queryN("mask.tags")
-        if len(itemTag) > 0 and  "UDIM" in itemTag[0]:
-            
-            # Save the ptag of the material group
-            for channel in range(sceneservice.query("channel.N")):
-                sceneservice.select("channel.name", str(channel))
-                if sceneservice.query("channel.name") == "ptag":        
-                    data.append(sceneservice.query("channel.value"))
-                    
+    
+    if mode == '$UDIM':
+        for i in range(itemNum):
+            sceneservice.select("mask.id", str(i))
+            itemTag = sceneservice.queryN("mask.tags")
+            if len(itemTag) > 0 and "UDIM" in itemTag[0]:
+                # Save the ptag of the material group
+                for channel in range(sceneservice.query("channel.N")):
+                    sceneservice.select("channel.name", str(channel))
+                    if sceneservice.query("channel.name") == "ptag":        
+                        data.append(sceneservice.query("channel.value"))
+    elif mode == '$ENTITY':
+        for i in range(itemNum):
+            sceneservice.select("mask.id", str(i))
+            itemTag = sceneservice.queryN("mask.tags")
+            if len(itemTag) > 0 and "ENTITY" in itemTag[0]:
+                # Save the ptag of the material group
+                for channel in range(sceneservice.query("channel.N")):
+                    sceneservice.select("channel.name", str(channel))
+                    if sceneservice.query("channel.name") == "ptag":        
+                        data.append(sceneservice.query("channel.value"))
+        
     return data
 
 def renderID():
@@ -329,80 +348,144 @@ def renderID():
         return sceneservice.query("item.id")
         break
 
+#def UDIMSets2(meshIDs):
+    #"""Return a list of UDIM selection sets. A list of meshIDs must be given"""
+    
+    #lx.eval('select.drop item mesh') # Clear selection
+    #data = []
+    ## Select all meshes
+    #for mesh in meshIDs:
+        #lx.eval('select.subItem %s add mesh' %mesh)
+    
+    ## Compare name of polyset and store the UDIM sets in a list
+    #polysetNum = layerservice.query("polset.N")
+    #for i in range(polysetNum):
+        #layerservice.select("polset.name", str(i))
+        #polySetName = layerservice.query("polset.name")
+        #if "UDIM" in polySetName and polySetName not in data:
+            #data.append(polySetName)
+            
+    #lx.eval('select.drop item mesh')
+    
+    #return data
+
 def UDIMSets(meshIDs):
-    """Return a list of UDIM selection sets. A list of meshIDs must be given"""
+    """Return a dict of UDIM selection sets per mesh. A list of meshIDs must be given.
+    {'mesh':['UDIM1','UDIM2']}"""
     
-    lx.eval('select.drop item mesh') # Clear selection
+    # Clear selection
+    lx.eval('select.drop item mesh') 
     
-    data = []
-    
+    # Go through the mesh items and save all UDIM selection sets in data
+    data = {}
     for mesh in meshIDs:
-        lx.eval('select.subItem %s add mesh' %mesh)
-    
-    # Compare name of polyset and store the UDIM sets in a list
-    polysetNum = layerservice.query("polset.N")
-    for i in range(polysetNum):
-        layerservice.select("polset.name", str(i))
-        polySetName = layerservice.query("polset.name")
-        if "UDIM" in polySetName and polySetName not in data:
-            data.append(polySetName)
+        lx.eval('select.subItem {0} set mesh'.format(mesh))
+        polysetNum = layerservice.query('polset.N')
+        for i in range(polysetNum):
+            layerservice.select("polset.name", str(i))
+            polySetName = layerservice.query("polset.name")
+            if "UDIM" in polySetName:
+                try:
+                    data[mesh].append(polySetName)
+                except:
+                    data[mesh] = [polySetName]
             
     lx.eval('select.drop item mesh')
     
     return data
 
-def createMaterial(maskColorTag, UDIMSet_list):
+def createMask(maskColorTag, itemList, mode, createMat=True):
     """
-    Create material groups for each UDIM. Each group contains a material.
+    Create material groups for each UDIM. If createMat True each group has its own material.
     The group is assigned via the UDIM selection sets.
+    mode: itemMask, groupMask
     """
-    for selSetName in UDIMSet_list:
-        if selSetName not in scanMatGroups():
-            # Create group mask with tags
-            lx.eval("shader.create mask")
-            lx.eval("texture.parent %s 0" %renderID())
-            lx.eval("item.tag string CMMT {%s}" %selSetName)
-            lx.eval("item.editorColor %s" %maskColorTag)
-            lx.eval("mask.setPTagType {Selection Set}")
-            lx.eval("mask.setPTag {%s}" %selSetName)
-            
-            maskName = lx.eval("item.name ? mask")
-            
-            # create material in created group
-            lx.eval("shader.create advancedMaterial")
-        
-        else:
-            lx.out("MARI ToolKit: ", selSetName, " existing.")
-
-def sortIntoGroups():
-    """Move imported textures into UDIM groups. Only textures which are directly underneath the render node and have a UDIM tag are sorted.
-    If a UDIM group does not excist the texture is not moved."""
-    sceneservice.select("item.N", "all")
-    itemNum = sceneservice.query("item.N")
-    imageDict = {}
-    maskDict = {}
-    for i in range(itemNum):
-        sceneservice.select("item.type", str(i))
-        itemType = sceneservice.query("item.type")
-        itemTag = sceneservice.queryN("item.tags") # first of query is always the comment tag of a item
-        try:
-            itemTag = tagStr2Dict(itemTag[0])
-            UDIM = itemTag["$UDIM"]
-
-            if  itemType == "imageMap" and "$UDIM" in itemTag and sceneservice.query("item.parent") == renderID():
-                sceneservice.select("item.id", str(i)) # Set the selection back to the current image item
-                imageID = sceneservice.query("item.id")
+    if mode == 'groupMask':
+        for item in itemList:
+            if item not in scanMatGroups('$UDIM'):
+                # Create group mask with tags
+                lx.eval("shader.create mask")
+                lx.eval("texture.parent %s 0" %renderID())
+                lx.eval("item.tag string CMMT {%s}" %item)
+                lx.eval("item.editorColor %s" %maskColorTag)
+                lx.eval("mask.setPTagType {Selection Set}")
+                lx.eval("mask.setPTag {%s}" %item)
                 
+                if createMat == True:
+                    # create material in created group
+                    lx.eval("shader.create advancedMaterial")
+                    lx.eval('item.tag string CMMT {%s}' %item)
+            
+            else:
+                lx.out("MARI ToolKit: ", item, " existing.")
+    elif mode == 'itemMask':
+        for item in itemList:
+            if item not in scanMatGroups('$ENTITY'):
+                # Create item mask with tags
+                lx.eval("shader.create mask")
+                lx.eval("texture.parent %s 0" %renderID())
+                lx.eval("item.tag string CMMT {%s}" %item)
+                lx.eval("item.editorColor %s" %maskColorTag)
+                # extract mesh name:
+                #lx.eval('mask.setMesh {0}'.format(item))
+                
+def moveImageMaps(imageTags, maskTags):    
+    '''Move image maps which are in the root and have a $UDIM tag into their masks in the shader tree.
+    Expects two lists from getItemTags()'''
+    for imageID in imageTags[0]:
+        index = imageTags[0].index(imageID) # index in the list to get the coresponding tag
+        imageTag = imageTags[1][index] # the tag of the image
+        lx.out(imageTag)
+
+        # Parent check
+        # If image is in the root ('Render') find the corresponding mask group
+        # and move it under it.
+        sceneservice.select('item.id', imageID)
+        sceneservice.select('item', sceneservice.query('item.parent'))
+        if sceneservice.query('item.type') == 'polyRender':
+            for maskTag in maskTags[1]:
+                lx.out('maskTag:', maskTag)
                 try:
-                    imageDict[UDIM].append(imageID)
+                    if maskTag['$UDIM'] == imageTag['$UDIM']:
+                        # Retrieve the maskID with index of masks list form masks[0]
+                        mask_index = maskTags[1].index(maskTag)
+                        maskID = maskTags[0][mask_index]
+                        lx.eval('select.item {0} set'.format(imageID))
+                        lx.eval('texture.parent {0} 1'.format(maskID))
                 except:
-                    imageDict[UDIM] = [imageID]
+                    pass
+
+### DEPRICATED ###                
+#def sortIntoGroups():
+    #"""Move imported textures into UDIM groups. Only textures which are directly underneath the render node and have a UDIM tag are sorted.
+    #If a UDIM group does not excist the texture is not moved."""
+    #sceneservice.select("item.N", "all")
+    #itemNum = sceneservice.query("item.N")
+    #imageDict = {}
+    #maskDict = {}
+    #for i in range(itemNum):
+        #sceneservice.select("item.type", str(i))
+        #itemType = sceneservice.query("item.type")
+        #itemTag = sceneservice.queryN("item.tags") # first of query is always the comment tag of a item
+        #try:
+            #itemTag = tagStr2Dict(itemTag[0])
+            #UDIM = itemTag["$UDIM"]
+
+            #if  itemType == "imageMap" and "$UDIM" in itemTag and sceneservice.query("item.parent") == renderID():
+                #sceneservice.select("item.id", str(i)) # Set the selection back to the current image item
+                #imageID = sceneservice.query("item.id")
                 
-            elif itemType == "mask" and "$UDIM" in itemTag:
-                maskID = sceneservice.query("item.id")
-                maskDict[UDIM] = maskID
-        except:
-                pass
+                #try:
+                    #imageDict[UDIM].append(imageID)
+                #except:
+                    #imageDict[UDIM] = [imageID]
+                
+            #elif itemType == "mask" and "$UDIM" in itemTag:
+                #maskID = sceneservice.query("item.id")
+                #maskDict[UDIM] = maskID
+        #except:
+                #pass
+### DEPRICATED ### 
     
     for key in imageDict:
         if key in maskDict:
@@ -414,9 +497,13 @@ def sortIntoGroups():
 def checkSelSets(meshIDs):
     """Check if selection sets are already created for the selected mesh item."""
     if not UDIMSets(meshIDs):
-        for mesh in meshIDs:
-            lx.eval('select.subItem %s set mesh' %mesh)
-            lx.eval("@UV_tools.py create_selSets")
+        try:
+            dialog_yesNo('There are no UDIM selection sets. Should I create them? This could take a while. So maybe you grab a coffe.')
+            for mesh in meshIDs:
+                lx.eval('select.subItem %s set mesh' %mesh)
+                lx.eval("@UV_tools.py create_selSets")
+        except:
+            return False
     else:
         lx.out("MARI ToolKit: UDIM selection sets existing.")
         pass
@@ -564,9 +651,77 @@ def getMeshItems():
         return mesh_dict, mode
     
     else:
-        return mode
         lx.out('I did nothing.')
+        return mode
 
+        
+def shaderTreeIndex(parent, item):
+    '''Return order index number of a item in the shadertree.
+    Use type description as returned from MODO'''
+    sceneservice.select('item', parent)
+    childList = list(sceneservice.query('item.children'))
+    try:
+        return childList.index(item)
+    except:
+        pass
+
+def sortST(selection, item_type):
+    '''Sort specific shader tree items alphabetically. Structure is maintained.'''
+    # Check if something is selected
+    if selection and len(selection) > 0:    
+        # Look up exposed item names and sort them in alphabetic order
+        itemList = []
+        for item in selection:
+            sceneservice.select('item', item)
+            itemList.append(sceneservice.query('item.name'))
+        itemList = sorted(itemList, key=str.lower)
+        
+        # Check the item type and find the items position in shader tree
+        # Dict structure: {parent:[[indices],[items]]}
+        data = {}
+        for item in itemList:
+            sceneservice.select('item', item)
+            if sceneservice.query('item.type') == item_type:
+                parent = sceneservice.query('item.parent')
+                try:
+                    data[parent][0].append(shaderTreeIndex(parent, item))
+                    data[parent][1].append(item)
+                except:
+                    data[parent] = [[shaderTreeIndex(parent, item)],[item]]
+        
+        # Sort the items in the shader tree
+        for parent, value in data.iteritems():
+            bottomItem = (min(value[0]))
+            itemList = value[1]
+            for item in itemList:
+                lx.eval('select.item {0} set'.format(item))
+                lx.eval('texture.parent {0} {1}'.format(parent, bottomItem))
+    else:
+        lx.out('Nothing selected. Or wrong type defined')
+
+    
+def getItemTags(item_type='all'):
+    '''Find item tags in scene created from the MARI Tool Kit. Default: all items are searched.
+    Returns two lists list[0]==[items];list[1]=={tags}.'''
+    sceneservice.select('item.N', 'all')
+    item_num = sceneservice.query('item.N')
+    items = []
+    tags = []
+    for item in xrange(item_num):
+        sceneservice.select('item', str(item))
+        if sceneservice.query('item.type') == item_type:
+            try:
+                itemTag = sceneservice.queryN('item.tags')[0]
+                # If a '$' is found it is most likely an item form the MARI Tool Kit
+                if '$' in itemTag:
+                    items.append(sceneservice.query('item.id'))
+                    tags.append(tagStr2Dict(itemTag))
+            except:
+                pass
+    if len(items) == len(tags):
+        return items, tags
+    else:
+        lx.out('Error - getItemTags(): lists dont match.')
 
 ## string conversions ##
 def dict2str(dictionary):
@@ -657,12 +812,12 @@ sceneservice = lx.Service("sceneservice")
 ## VARIABLES ##
 args = lx.args()[0] # Arguments. Only the first argument is passed.
 
-layer_index = lx.eval("query layerservice layer.index ? main") #select the current mesh layer
-layer_id = lx.eval("query layerservice layer.id ? main")
-scene_index = lx.eval("query sceneservice scene.index ? current")
-imap_selection = lx.evalN("query sceneservice selection ? imageMap") # get the name of the selected images
-vmap_num = lx.eval("query layerservice vmap.N ?") # Number of vertex maps of selected mesh
-maskColorTag = "orange" # Color tag for UDIM mask groups
+layerservice.select('layer.id','main')
+layer_index = layerservice.query('layer.index') #select the current mesh layer
+
+layerservice.select('vmap.N', 'all')
+vmap_num = layerservice.query('vmap.N') # Number of vertex maps of selected mesh
+maskColorTag = "none" # Color tag for UDIM mask groups
 
 
 #################################
@@ -721,15 +876,23 @@ if args == "organizeLoadFiles":
         
         if fileList and selection_status == True and imageItemList[0] != False:
             checkSelSets(mesh_items) # Check if selection sets are excisting for all mesh items
-            createMaterial(maskColorTag, UDIMSets(mesh_items)) # create the material groups with color tag and comment tag
-            sortIntoGroups() 
+            
+            # create the material groups with color tag and comment tag
+            for mesh, UDIMs in UDIMSets(mesh_items).iteritems():
+                createMask(maskColorTag, UDIMs, 'groupMask')
+                #lx.eval('select.item drop')
+            
+            #sortIntoGroups()
+            
+            moveImageMaps(getItemTags('imageMap'), getItemTags('mask'))
             
             # Set the Shader effect of the imported textures
             setShaderEffect(imageItemList[0])
             
             #Error logging
             lx.out('MARIToolKit: FILENAME ERROR:\n %s' %('\n'.join(imageItemList[1])))
-            
+        
+        # If nothing is selected all meshes which match the $ENTITY are used.    
         elif fileList and selection_status == False and imageItemList != False:
             meshes_found = []
             for image in imageItemList[0]:
@@ -740,9 +903,16 @@ if args == "organizeLoadFiles":
                     pass
             
             checkSelSets(meshes_found)
-            createMaterial(maskColorTag, UDIMSets(meshes_found)) # create the material groups with color tag and comment tag
-            sortIntoGroups() 
-            setShaderEffect(imageItemList[0]) # Set the Shader effect of the imported textures
+            
+            for mesh, UDIMs in UDIMSets(meshes_found).iteritems():
+                createMask(maskColorTag, UDIMSets(meshes_found), 'groupMask') # create the material groups with color tag and comment tag
+
+            #sortIntoGroups() 
+            
+            moveImageMaps(getItemTags('imageMaps'), getItemTags('mask'))
+
+            # Set the Shader effect of the imported textures
+            setShaderEffect(imageItemList[0]) 
             
             #Error logging
             lx.out('MARIToolKit: FILENAME ERROR:\n %s' %('\n'.join(imageItemList[1])))
@@ -784,18 +954,22 @@ elif args == "sortToGroups":
         for i in range(sceneservice.query('mesh.N')):
             sceneservice.select('mesh.id',str(i))
             mesh_items.append(sceneservice.query('mesh.id'))
-            
-        createMaterial(maskColorTag, UDIMSets(mesh_items))
-        sortIntoGroups()
+        for mesh, UDIMs in UDIMSets(mesh_items).iteritems():    
+            createMask(maskColorTag, UDIMs, 'groupMask')
+        moveImageMaps(getItemTags('imageMaps'), getItemTags('mask'))
+        
     else:
-        sortIntoGroups()
+        moveImageMaps(getItemTags('imageMaps'), getItemTags('mask'))
 
 # Gamma Correction: Correct Gamma of textures 1.0/2.2 = 0.4546 #
 elif args == "gammaCorrect":
     set_gamma(gamma_value)
 
-# set the UVoffset according to image file name #
+
+# set the UVoffset according to $UDIM in comment tag #
 elif args == "setUVoffset":
+    sceneservice.select('selection', 'imageMap')
+    imap_selection = sceneservice.queryN('selection')
     for imap in imap_selection:
         sceneservice.select("item.type", str(imap))
         itemTag = sceneservice.queryN("item.tags") # first of query is always the comment tag of a item
@@ -812,28 +986,16 @@ elif args == "setUVoffset":
         except:
             continue
 
+
 # Sort selected images top to bottom #
-elif args == "sortSelection":
-    clip_list = get_clipPath(imap_selection)
-    sorted_list= sorted(clip_list) # Sort keys of dict in alphabetic order
-    
-    for i in sorted_list:
-        #lx.out("clip path: ", i)
-        
-        # If selection is directly parented under Render -> not in a sub group
-        if "Render" in get_texture_parent(clip_list[i][1]):
-            lx.eval("select.item %s set textureLayer" %clip_list[i][1])
-            lx.eval("texture.parent %s 1" %get_texture_parent(clip_list[i][1]))
-        
-        # If selection is parented in a group
-        else:
-            lx.eval("select.item %s set textureLayer" %clip_list[i][1])
-            lx.eval("texture.parent %s 0" %get_texture_parent(clip_list[i][1]))
+elif args == "sortImages":
+    sceneservice.select('selection', 'imageMap')
+    selection = sceneservice.query('selection')
+    sortST(selection, 'imageMap')
 
 # Create poly selection set for each UDIM #
 elif args == "createPolySets":
     # Check if a UV map is selected
-    #lx.out(vmap_selected(vmap_num, layer_index))
     if vmap_selected(vmap_num, layer_index) == False or not vmap_selected(vmap_num, layer_index):
         warning_msg("Please select a UV map.")
     
@@ -856,7 +1018,19 @@ elif args == "setShaderEffect":
 
 elif args == "testing":
     lx.out("-----TESTING-----")
+    #sceneservice.select('selection', 'mesh')
+    #meshIDs = sceneservice.queryN('selection')
     
+    filename = 'Mesh01.DIFFUSE.1002'
+    
+    imageTags = getItemTags('imageMap')
+    maskTags = getItemTags('mask')
+    
+    moveImageMaps(imageTags, maskTags)
+    
+
+
+
 else:
     lx.out("MARI ToolKit: ")
     lx.out("Please choose one argument: loadFiles, gammaCorrect, setUVoffset, sortSelection, createPolySets, fixUVs")    
