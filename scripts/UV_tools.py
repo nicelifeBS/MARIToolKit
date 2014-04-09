@@ -79,6 +79,7 @@ def check_selSets():
         
         # Delete Sets
         layer.select("layer.index", str(layer_index))
+        lx.out(layer.query('layer.name'))
         for sets in delete_sets:
             lx.eval("select.deleteSet {%s}" %sets)
             lx.out("Deleted Selection Set: ", sets)
