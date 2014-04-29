@@ -247,7 +247,7 @@ elif args == "fix_uvs":
     
     # Variables
     bad_polys = []
-    trans_value = 0.001 # translation value for the uv points
+    trans_value = 0.0001 # translation value for the uv points
     
     progressbar.init(len(poly_list)) # Initialize the progress bar
     

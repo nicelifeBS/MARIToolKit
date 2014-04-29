@@ -80,6 +80,7 @@ def create_imageMap(clipName, uvmap, UVoffSet):
     lx.eval("shader.create constant")
     lx.eval("item.setType imageMap textureLayer")
     lx.eval("texture.setIMap {%s}" %clipName)
+    lx.eval("item.channel txtrLocator$useUDIM false")
     lx.eval("item.channel imageMap$aa false")
     lx.eval("item.channel txtrLocator$projType uv")
     lx.eval("texture.setUV {%s}" %uvmap)
@@ -580,7 +581,7 @@ def sortST(selection, item_type):
                 lx.eval('select.item {%s}' %(item))
                 lx.eval('texture.parent {%s} {%s}' %(parent, bottomItem))
     else:
-        lx.out('Nothing selected. Or wrong type defined')
+        lx.out('Nothing selected or wrong type defined')
 
     
 def getItemTags(item_type='all', selection=None):
@@ -1091,7 +1092,41 @@ elif args == "fixUVs":
 elif args == "setShaderEffect":
     setShaderEffect()
 
+elif args == 'createMetaData':
+    try:
+        lx.eval('user.value MARI_TOOLS_filename')
+
+    except:
+        lx.out('user pressed cancel')
+
+    else:    
+        sceneservice.select('selection', 'imageMap')
+        selection = sceneservice.queryN('selection')    
+        
+        imageTags = getItemTags(selection=selection)
+        lx.out(imageTags)
+        
+        # Check the selected imageMaps if any Tags are present.
+        # If not those are created
+        for imageMap in selection:
+            if imageMap not in imageTags:
+                layerservice.select('texture.N', 'all')
+                for i in xrange(layerservice.query('texture.N')):
+                    layerservice.select('texture.id', str(i))
+                    if layerservice.query('texture.id') == imageMap:
+                        filePath = layerservice.query('texture.clipFile')
+                        lx.eval('select.item %s set' %imageMap)
+                        newTags = create_TagsFromFilename(fileNameUser, get_filename(filePath))
+                        newTags[MTK_TYPE] = 'imageMap'
+                        createTags(newTags)
+                        break
+                    else:
+                        pass
+            else:
+                pass    
+    
+
 elif args == "testing":
-    lx.out("-----TESTING-----")
+    lx.out("-----TESTING-----") 
     
        
