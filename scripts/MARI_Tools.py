@@ -92,6 +92,20 @@ def create_imageMap(clipName, uvmap, UVoffSet):
     sceneservice.select('selection', 'imageMap')
     imageMapID = sceneservice.query('selection')
     return imageMapID
+
+def create_imageMapFromFolder(imageFolderID, uvmap):
+    """Create image map with an imageFolder. This will use the automatic UDIM from modo"""
+    lx.eval("shader.create constant")
+    lx.eval("item.setType imageMap textureLayer")
+    lx.eval("texture.setIMap {%s}" %imageFolderID)
+    lx.eval("item.channel txtrLocator$useUDIM true")
+    lx.eval("item.channel imageMap$aa false")
+    lx.eval("item.channel txtrLocator$projType uv")
+    lx.eval("texture.setUV {%s}" %uvmap)    
+    
+    sceneservice.select('selection', 'imageMap')
+    imageMapID = sceneservice.query('selection')
+    return imageMapID
     
     
 def load_files():
@@ -180,18 +194,17 @@ def create_TagsFromFilename(fileNameUser, fileName):
         # Convert delimiter to regular expressions
         # re.escape: escapes all special character in string
         d = re.escape("|".join(d)).replace('\\|', '|') # convert '\|' -> '|' after re.escape
-        lx.out('d', d)
+        #lx.out('d', d)
         
         # Extract the values of the foundMARI_vars from the actual filename
         fileVars = {}
         fileName = re.split(d, fileName)
-        lx.out('filename:', fileName)
+        #lx.out('filename:', fileName)
         fileName = filter(None, fileName)
     
         for var in foundMARI_vars:
             fileVars[var[:4]] = fileName[foundMARI_vars.index(var)]
         return fileVars
-    
     
     
 def get_clipPath(selection): # Not used currently
@@ -306,6 +319,107 @@ def loadTextures(fileList, filter_clips, fileNameUser, UVmap_name):
     
     return imageMaps
 
+def loadTextures2(fileList, filter_clips, fileNameUser, UVmap_name):
+    '''Uses the new UDIM functionality introduced in modo 801. 
+    Loads the textures into image folders in the clip browser. Sets the UDIM according to the filename.
+    If channel and/or entity is specified in the filename template the folder name is $ENTITY_$CHANNEL.
+    
+    returns dict of created imagemaps'''
+    
+    # Clear Selection and walk through files
+    lx.eval('select.drop item')    
+    clipList = {}
+    for clipPath in fileList:
+        
+        # Clear selection and scan for image folders
+        lx.eval('select.drop item')
+        imageFolders = getItemTags(item_type='imageFolder')
+
+        # Extract tags from the filename
+        try:
+            tags = create_TagsFromFilename(fileNameUser, get_filename(clipPath))
+
+        except:
+            lx.out('There was a problem with the filename: ',get_filename(clipPath))
+            continue
+
+        else:
+            # Tags for the image folder; UDIM is removed and MTK_TYPE added
+            tags_folder = tags
+            tags_folder.pop(UDIM, None)
+            tags_folder[MTK_TYPE] = 'imageFolder'
+            
+            # Create image map and check clip size 
+            # If filter_clips is active 8x8 textures are deleted
+            tags[MTK_TYPE] = 'imageMap'
+            lx.eval("clip.addStill %s" %clipPath)
+            if filter_clips == True:
+                sceneservice.select('selection', 'videoStill')
+                clipID = sceneservice.query('selection')            
+                filterClips(clipID, clip_size='w:8')
+            
+            else:
+                # Set the UDIM value and attach tags to image
+                lx.eval('clip.setUdimFromFilename')
+                createTags(tags)
+                
+                # Get clipID
+                sceneservice.select('selection', 'videoStill')
+                clipID = sceneservice.query('selection')            
+            
+            # Create folder name from tags
+            # If neither CHANNEL nor ENTITY is found the default name 'MTK IMPORT' is given
+            if CHANNEL in tags_folder:
+                if ENTITY in tags_folder:
+                    imageFolder_name = tags_folder[ENTITY] + '_' + tags_folder[CHANNEL]
+                else:
+                    imageFolder_name = tags_folder[CHANNEL]
+            elif CHANNEL not in tags_folder:
+                if ENTITY in tags_folder:
+                    imageFolder_name = tags_folder[ENTITY]
+                else:
+                    imageFolder_name = 'MTK IMPORT'
+            
+            # Find a matching image folder
+            # If no folder is found image_folderID is None
+            image_folderID = None
+            for folder_id, folder_tag in imageFolders.iteritems():
+                compare = set(folder_tag.values()) ^ set(tags_folder.values()) # len of zero -> its a match
+                if len(compare) == 0:
+                    image_folderID = folder_id
+                    break
+                else:
+                    pass
+            
+            # Create new image folder
+            if image_folderID == None:    
+                lx.eval('clip.newFolder')
+                
+                createTags(tags_folder)
+                lx.eval('clip.name {%s}' %imageFolder_name)
+            
+                sceneservice.select('selection', 'imageFolder')
+                image_folderID = sceneservice.query('selection')
+                new_imageFolder = True
+            
+            else:
+                new_imageFolder = False
+            
+            # Move image under image folder
+            # If a new folder was created save its id and tags into the clipList
+            # -> only new folders create new imagemaps in the shadertree
+            lx.eval('item.parent {%s} {%s} 0' %(clipID, image_folderID))
+            if new_imageFolder == True:
+                clipList[image_folderID] = tags_folder
+
+    # Create image maps in Shader Tree and return all created maps as a dict
+    imageMaps = {}
+    for folderID, clipTags in clipList.iteritems():
+        imageMapID = create_imageMapFromFolder(folderID, UVmap_name)
+        createTags(clipTags)
+        imageMaps[imageMapID] = clipTags
+    
+    return imageMaps
 
 
 def renderID():
@@ -383,12 +497,48 @@ def create_mask_UDIM(parent, tags, selection_set, createMat=True):
     return maskID
 
 
+def create_missing_entityGrps(imageItemList):    
+    '''Scans for entity mask groups in the shader tree.
+    If a group is missing it is created.'''
+    present_entityIDs = scan_masks('ENTITY_IDs')
+    if '$ENTITY' in fileNameUser:
+        imported_images = {}
+        for image, imageTag in imageItemList.iteritems():
+            try:
+                imported_images[imageTag[ENTITY]].append(image)
+            except:
+                imported_images[imageTag[ENTITY]] = [image]
+        
+        lx.out('imported images: ',imported_images)
+        
+        created = []
+        for entity, imageID in imported_images.iteritems():
+            if entity not in (present_entityIDs.keys() or created):
+                lx.eval('select.drop item')
+                new_entity = create_mask_ENTITY(renderID(), {'$ENTITY':entity}, name=entity)
+                created.append(new_entity)
+            else:
+                continue
+
+
 def createTags(dictionary):
     '''Create custom tags for a selected item. A dictionary with the tag values must be given.
     {'UDIM':'1011','ENTITY':'Mesh',...}'''
     for key, value in dictionary.iteritems():
         lx.eval('item.tag string {%s} {%s}' %(key[:4], value)) # key value must be only 4 chars long
 
+def move2entityMasks(images, masks):
+    """Move images into their entity mask groups"""
+    for imageID, imageTag in images.iteritems():
+        try:
+            entity = imageTag[ENTITY]
+        except:
+            continue
+        else:
+            for maskID, maskTags in masks.iteritems():
+                if maskTags[MTK_TYPE] == 'ENTITY_mask' and maskTags[ENTITY] == entity:
+                    lx.eval('select.item %s' %imageID)
+                    lx.eval('texture.parent %s -1' %maskID)                    
 
 def moveImageMaps(images, masks):
     '''Move image maps to their UDIM_mask. Expects two dicts: {item.id:{tags}}'''
@@ -558,14 +708,18 @@ def sortST(selection, item_type):
             sceneservice.select('item', item)
             itemList.append(sceneservice.query('item.name'))
         itemList = sorted(itemList, key=str.lower)
-        
+        lx.out(itemList)
         # Check the item type and find the items position in shader tree
         # Dict structure: {parent:[[indices],[items]]}
         data = {}
         for item in itemList:
-            lx.out('test: {%s}' %item)
+            lx.out(data)
+            lx.out('------------')
+            lx.out('item.id', item)
             itemID = lx.eval('query sceneservice item.id ? {%s}' %item)
+            sceneservice.select('item.type', itemID)
             if sceneservice.query('item.type') == item_type:
+                lx.out(itemID)
                 parent = sceneservice.query('item.parent')
                 try:
                     data[parent][0].append(get_shaderTreeIndex(parent, itemID))
@@ -772,6 +926,84 @@ create_maskGroups = lx.eval("user.value MARI_TOOLS_create_maskGroups ?") # creat
 ######################################
 
 # Import & organize textures into groups #
+if args == "organizeLoadFiles2":
+    
+    ##############################
+    #      IMPORT TEXTURES       #
+    ##############################
+    
+    sceneservice.select('selection', 'mesh')
+    mesh_items = sceneservice.queryN('selection')
+    entity_status = '$ENTITY' in fileNameUser
+    
+    ## Check the selection ##
+    ## if nothing is selected all mesh items are stored in a dict if $ENTITY is specified.
+    try:
+        mesh_items[0]
+        selection_status = True
+    except:
+        selection_status = False
+        
+        # Future enhancement walk through all meshes which match the ENTITY
+        #mesh_items = {}
+        #if entity_status == True:
+            #sceneservice.select('mesh.N', 'all')
+            #for i in range(sceneservice.query('mesh.N')):
+                #sceneservice.select('mesh.id', str(i))
+                #mesh_items[sceneservice.query('mesh.name')] = sceneservice.query('mesh.id')            
+    
+    ## CHECK SETTINGS ##        
+    if "$UDIM" not in fileNameUser:
+        warning_msg("UDIM is missing in the filename template.")
+    
+    ## Warning if UV set is selected ##
+    elif vmap_selected(vmap_num, layer_index) == False or not vmap_selected(vmap_num, layer_index):
+        warning_msg("Please select a UV map.")
+    
+    ## Warning if nothing is selected and no ENTITY is defined ##
+    elif selection_status == False: #and entity_status == False:
+        warning_msg("Please Select an appropriate mesh layer.")
+    
+    else:
+        UVmap_name = vmap_selected(vmap_num, layer_index)        
+        
+        # Open dialog to load image files
+        fileList = load_files() 
+        
+        # Load the textures and create image maps in shader tree
+        imageItemList = loadTextures2(fileList, filter_clips, fileNameUser, UVmap_name)
+     
+        if imageItemList:
+            
+            # Check if the selection sets are created
+            check_UDIMSelSets(mesh_items)
+            
+            # Clear selection
+            lx.eval('select.drop item')
+            
+            # Find present mask groups in shadertree
+            # And create missing groups for imported images
+            create_missing_entityGrps(imageItemList) 
+            
+            # Sort the images into their masks and change the shader effect
+            move2entityMasks(imageItemList, getItemTags('mask'))                        
+            
+            if CHANNEL in fileNameUser:
+                setShaderEffect(imageItemList)
+            else:
+                pass
+            
+            # Select imported images
+            lx.eval('select.drop item')
+            for i in imageItemList.keys():
+                lx.eval('select.subItem {0} add textureLayer'.format(i))
+        
+            if gamma_correction == True:
+                set_gamma(gamma_value)            
+
+
+## Old import 701 ##
+# Import & organize textures into groups #
 if args == "organizeLoadFiles":
     
     ##############################
@@ -921,11 +1153,32 @@ elif args == "loadFiles":
             lx.out("MARI ToolKit: Canceld by user.")
 
 
+### ----------- ####
+
 #####################
 #       TOOLS       #
 #####################
 
-# Sort into material groups
+# Sort into material groups modo 801
+elif args == "sortToGroups2":
+    
+    # Query selection
+    sceneservice.select('selection', 'imageMap')
+    imageMaps = sceneservice.query('selection')
+    
+    imageItemList = getItemTags(selection=imageMaps)
+    
+    if create_maskGroups == True:
+        # Create missing mask groups and sort image maps into groups
+        create_missing_entityGrps(imageItemList)                
+        move2entityMasks(imageItemList, getItemTags('mask'))          
+        
+    else:
+        move2entityMasks(imageItemList, getItemTags('mask'))
+    
+
+
+# Sort into material groups modo 701
 elif args == "sortToGroups":
     
     # Query selection
@@ -1127,6 +1380,8 @@ elif args == 'createMetaData':
     
 
 elif args == "testing":
-    lx.out("-----TESTING-----") 
+    lx.out("-----TESTING-----")
     
-       
+
+
+
