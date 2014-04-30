@@ -8,7 +8,7 @@ This version is for MODO 801 and utilises the new UDIM features of MODO.
 Copy folder into one of the KIT directories of MODO
 
 Windows:
-C:\Users\(Username)\AppData\Roaming\Luxology\Content\Kits
+C:\Users\\(Username)\AppData\Roaming\Luxology\Content\Kits
 
 OS X:
 /Library/Application Support/Luxology/Content/Kits
