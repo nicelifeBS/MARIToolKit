@@ -23,7 +23,16 @@ Problems:
 
 import time
 
-### METHODS ###
+def repack_selected():
+    '''repacks selected uvs in their udim'''
+
+    lx.eval('tool.set util.udim on')
+    lx.eval('udim.fit')
+    udim = lx.eval('tool.attr util.udim number ?')
+    lx.eval('uv.pack true true true auto 0.2 false false udim %s' % udim)
+    lx.eval('tool.set util.udim off')    
+
+
 def selected_uvmap():
     """
     Return the index of the current selected uv map
@@ -153,9 +162,6 @@ def warning_msg(name):
         
     except RuntimeError:
         pass
-    
-### METHODS END ###
-
 
 
 # LX SERVICE #
@@ -177,10 +183,8 @@ layer_index = layer.query("layer.index")
 if args == "create_selSets":
     lx.out("create selection sets for UDIMs")
     
-    
-    #-- Debugging: Start Time --#
+    # timer start
     t1 = time.time()
-    #---------------------------#
 
     # select polygons 
     layer.select("polys", "all")
@@ -191,16 +195,11 @@ if args == "create_selSets":
     
     progressbar.init(len(uv_dict)) # Initialize the progress bar
     
-    
-    
-    #############################################################
     # Here we select the polys which were stored in the uv_dict
     # and assign them to their UDIM selection set
     #
     # iteritems() is faster and gives access to key and
     # value at the same time.
-    #############################################################
-    
     for UDIM,value in uv_dict.iteritems():
         
         # Clear selection
@@ -222,21 +221,18 @@ if args == "create_selSets":
         # Progressbar step
         progressbar.step(1)
         
-        
-    #-----------------# Debugging: Time  #-----------------#
+    # timer stop
     t2 = time.time()
     sets_creation = t2 - t1
     lx.out("Selection Sets Creation: %s sec" %sets_creation)
-    #------------------------------------------------------#
     
-###########
+
 # FIX UVs #
-###########
 elif args == "fix_uvs":
-    """
-    Check if all polys are in a UDIM sector.
-    If a poly is overlapping select it and give warning!
-    """
+
+    #Check if all polys are in a UDIM sector.
+    #If a poly is overlapping select it and give warning!
+    
     # Logging
     lx.out("fixing uvs so all points are in one UDIM")
     

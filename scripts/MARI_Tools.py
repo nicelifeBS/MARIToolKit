@@ -4,8 +4,6 @@
 MARI TOOLs
 Bjoern Siegert aka nicelife
 
-Last edited 2014-04-09
-
 Arguments:
 loadFiles, gammaCorrect, setUVoffset, sortSelection, createPolySets
 
@@ -21,43 +19,11 @@ Tools:
 - Gamma correction of imported texutres if needed
 - Sort the images in scene tree in alphabetic order
 - Create polygon sets for each UDIM
-
-
-Version History:
-v1.6
-- ENTITY and UDIM masks
-
-v1.3
-METADATA now storred in the imported textures:
-If filename contains MARI filname variables ($ENTITY, $CHANNEL, $UDIM, $LAYER, $FRAME, $NUMBER, $COUNT, $[METADATA VALUE]) these are storred
-as a comment tag of the texture. E.g.:
-$UDIM:1001;$CHANNEL:diffuse
-
-$CHANNEL options:
-User can set values for diffuse color, specular amount, reflection amount, bump, normal and displacement
-
-Filename template is now used to extract all the MARI filename variables and follows its same values
-
-Imported textures can now be sorted into group masks in the shader tree and if $CHANNEL is set the shader effect is set as well
-Grouping and shader effect are also tools.
-
-
-v1.2
-New Feature:
-- Create selection sets for the different UDIMs
-
-v1.1
-Bugfixes:
-- Creating the image maps didn't work reliable because of a selection in the shader tree. Clears selection (only select the Mesh) before creating the image maps now
-- Sorting fixed
-- Added some logging
 """
 
 import re
 import lx
 import lxu.select
-
-### METHODS ####
 
 def locator_ID(imageMap_ID):
     """
@@ -858,19 +824,7 @@ def dialog_yesNo(header, text):
     
     except RuntimeError:
         return False
-
-#def dialog_yesNoCancel(header, text):
-    #try:
-        #lx.eval("dialog.setup yesNoCancel")
-        #lx.eval("dialog.title {%s}" %header)
-        #lx.eval("dialog.msg {%s}" %text)
-        #lx.eval("dialog.result ok")
-        #lx.eval("dialog.open")
-        #return lx.eval("dialog.result ?")
     
-    #except RuntimeError:
-        #return lx.eval("dialog.result ?")
-
 
 def dialog_brake():
     try:
@@ -886,7 +840,6 @@ def dialog_brake():
     except RuntimeError:
         return False
 
-##---------------------------------------------##
 ###---------------METHODS END --------------------------###
 
 
