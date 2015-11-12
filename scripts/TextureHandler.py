@@ -1,4 +1,7 @@
+#python
+
 import modo
+import lx
 
 scene = modo.scene.current()
 shaderGraph = lx.object.ItemGraph(scene.GraphLookup(lx.symbol.sGRAPH_SHADELOC))
@@ -27,7 +30,7 @@ def get_shaderTree_pos(item):
 	# imageFolders are special. They are not part of the shader tree so we need to
 	# get it assosiating imageMap item
 	if item.type == 'imageFolder':
-		item_id = modo.Item(shaderGraph.RevByIndex(s, 0)).id
+		item_id = modo.Item(shaderGraph.RevByIndex(item, 0)).id
 	else:
 		item_id = item.id
 	
@@ -85,9 +88,8 @@ def udim_list(udims):
 	:type udims: str'''
 	
 	data = []
-	for i in l.split(','):
+	for i in udims.split(','):
 		i = i.strip()
-		print i
 		if '-' in i:
 			min = i.split('-')[0].strip()
 			max = i.split('-')[1].strip()
@@ -97,3 +99,17 @@ def udim_list(udims):
 			data.append(int(i))
 
 	return sorted(list(set(data)))
+
+
+args = lx.args()[0]
+
+# User values
+bake_udims = lx.eval('user.value MARI_TOOLS_bake_udims ?')
+
+if args == 'unpack':
+	selected = scene.selected
+	for imageFolder in selected:
+		unpack_imageFolder(imageFolder)
+		
+elif args == 'bake':
+	print 'MARITOOLS: ', udim_list(bake_udims)
