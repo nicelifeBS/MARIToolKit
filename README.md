@@ -1,8 +1,8 @@
-MARIToolKit for MODO 801
+MARIToolKit for MODO 901
 ===========
 
 MODO KIT to make import of MARI models & textures easier.
-This version is for MODO 801 and utilises the new UDIM features of MODO.
+This version is for MODO 901 and utilises the new UDIM features of MODO.
 
 ## Installation
 Copy folder into one of the KIT directories of MODO
